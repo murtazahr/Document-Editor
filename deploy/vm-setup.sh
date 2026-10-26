@@ -67,9 +67,17 @@ COMPOSE_FILES=(-f docker-compose.yml)
 if [ -n "${APP_USER:-}" ] && [ -n "${APP_PASSWORD:-}" ]; then
   log "Enabling basic auth via Caddy on port 80 (user: $APP_USER)"
   HASH=$($DOCKER run --rm caddy:2 caddy hash-password --plaintext "$APP_PASSWORD")
-  # docker compose interpolates "$" inside .env values, so every "$" in the bcrypt hash must be doubled.
-  setenv APP_USER "$APP_USER"
-  setenv APP_PASSWORD_HASH "${HASH//\$/\$\$}"
+  # Write the hash straight into the Caddyfile: passing it through .env would let docker compose
+  # interpolate the "$" signs in the bcrypt hash and silently break authentication.
+  python3 - "$APP_USER" "$HASH" <<'PYEOF'
+import sys
+user, h = sys.argv[1], sys.argv[2]
+t = open("deploy/Caddyfile").read().replace("__APP_USER__", user).replace("__APP_PASSWORD_HASH__", h)
+open("deploy/Caddyfile.generated", "w").write(t)
+PYEOF
+  COMPOSE_FILES+=(-f deploy/compose.auth.yml)
+elif [ -f deploy/Caddyfile.generated ]; then
+  log "Keeping existing basic-auth configuration (deploy/Caddyfile.generated)"
   COMPOSE_FILES+=(-f deploy/compose.auth.yml)
 else
   log "No APP_USER/APP_PASSWORD given: the app will listen on port 3000 WITHOUT authentication"

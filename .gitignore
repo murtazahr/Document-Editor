@@ -42,3 +42,6 @@ next-env.d.ts
 
 # app data (projects, builds, settings)
 /data
+
+# generated on the deployment host
+/deploy/Caddyfile.generated

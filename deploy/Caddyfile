@@ -1,8 +1,11 @@
-# Basic-auth reverse proxy in front of the app. APP_PASSWORD_HASH is a bcrypt hash
-# (generate with: docker run --rm caddy:2 caddy hash-password --plaintext 'yourpassword').
+# Template for the basic-auth reverse proxy in front of the app.
+# deploy/vm-setup.sh substitutes the two placeholders and writes deploy/Caddyfile.generated
+# (git-ignored), which compose.auth.yml mounts. The hash is a bcrypt hash from
+#   docker run --rm caddy:2 caddy hash-password --plaintext 'yourpassword'
+# It is written straight into the file so docker compose never interpolates its "$" signs.
 :80 {
 	basic_auth {
-		{$APP_USER} {$APP_PASSWORD_HASH}
+		__APP_USER__ __APP_PASSWORD_HASH__
 	}
 	reverse_proxy app:3000
 	request_body {
