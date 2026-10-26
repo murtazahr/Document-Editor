@@ -98,6 +98,13 @@ Good fits:
   using the provided `Dockerfile`; mount a persistent volume at `/data`. The image is large
   (TeX Live) but needs little CPU or memory.
 
+`deploy/vm-setup.sh` does all of this on a fresh Ubuntu VM in one go (Docker install, clone,
+build, start, optional basic-auth proxy on port 80):
+
+```bash
+ssh ubuntu@<vm-ip> 'APP_USER=me APP_PASSWORD=choose-one BRANCH=main bash -s' < deploy/vm-setup.sh
+```
+
 Put it behind HTTPS and some form of access control (a reverse proxy with basic auth, Tailscale,
 or a VPN) if it is reachable from the internet, since the app has no login of its own.
 

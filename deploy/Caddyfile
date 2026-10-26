@@ -1,0 +1,11 @@
+# Basic-auth reverse proxy in front of the app. APP_PASSWORD_HASH is a bcrypt hash
+# (generate with: docker run --rm caddy:2 caddy hash-password --plaintext 'yourpassword').
+:80 {
+	basic_auth {
+		{$APP_USER} {$APP_PASSWORD_HASH}
+	}
+	reverse_proxy app:3000
+	request_body {
+		max_size 100MB
+	}
+}

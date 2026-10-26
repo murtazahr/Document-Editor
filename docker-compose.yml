@@ -10,3 +10,4 @@ services:
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
     volumes:
       - ./data:/data
+    restart: unless-stopped

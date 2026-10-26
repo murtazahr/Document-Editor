@@ -1,0 +1,23 @@
+# Overlay: serve the app on port 80 through Caddy with HTTP basic auth.
+# Used by deploy/vm-setup.sh when APP_USER/APP_PASSWORD are set.
+#   docker compose -f docker-compose.yml -f deploy/compose.auth.yml up -d --build
+services:
+  app:
+    ports: !override []          # not published directly any more
+    expose:
+      - "3000"
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      APP_USER: ${APP_USER}
+      APP_PASSWORD_HASH: ${APP_PASSWORD_HASH}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - app
+volumes:
+  caddy_data:
