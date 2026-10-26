@@ -2,18 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, PanelLeft, Settings as SettingsIcon, Save, FileSearch, GitCompare, ScanSearch } from "lucide-react";
+import { ArrowLeft, PanelLeft, Settings as SettingsIcon, Save, FileSearch, GitCompare, ScanSearch, GitBranch } from "lucide-react";
 import LatexEditor, { type LatexEditorHandle, type HighlightRange } from "@/components/editor/LatexEditor";
 import FileSidebar from "@/components/files/FileSidebar";
 import PdfPane from "@/components/pdf/PdfPane";
 import DiffView from "@/components/diff/DiffView";
 import DetectionPane, { type MappedWindow } from "@/components/pangram/DetectionPane";
 import SettingsDialog from "./SettingsDialog";
+import GitPane, { type GitInfo } from "./GitPane";
 import { api, encPath, type ProjectDetail, type FileContent, type CompileResult, type StoredDetection, type SettingsInfo } from "@/lib/client-api";
 import { latexToProse, proseRangeToSource, findLoose, countWords } from "@/lib/latex-prose";
 import { cn } from "@/components/ui/cn";
 
-type Tab = "pdf" | "diff" | "detect";
+type Tab = "pdf" | "diff" | "detect" | "git";
 type SaveState = "saved" | "unsaved" | "saving" | "error";
 
 export default function Workspace({ id }: { id: string }) {
@@ -37,6 +38,8 @@ export default function Workspace({ id }: { id: string }) {
   const [detectError, setDetectError] = useState<string | null>(null);
   const [highlightDet, setHighlightDet] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
+  const [saveTick, setSaveTick] = useState(0);
+  const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
 
   const editor = useRef<LatexEditorHandle>(null);
   const savedContent = useRef("");
@@ -99,6 +102,7 @@ export default function Workspace({ id }: { id: string }) {
       await api(`/api/projects/${id}/files/${encPath(path)}`, { method: "PUT", body: JSON.stringify({ content: text }) });
       savedContent.current = text;
       setSaveState(contentRef.current === text ? "saved" : "unsaved");
+      setSaveTick((t) => t + 1);
       return true;
     } catch (e) {
       setSaveState("error");
@@ -173,11 +177,12 @@ export default function Workspace({ id }: { id: string }) {
     await refreshFiles();
     notify("Baseline set to current text");
   };
-  const setBaselineText = async (text: string) => {
+  const setBaselineText = async (text: string, label?: string) => {
     if (!active) return;
     const r = await api<{ baseline: string }>(`/api/projects/${id}/baseline`, { method: "PUT", body: JSON.stringify({ file: active, content: text }) });
     setBaseline(r.baseline);
     await refreshFiles();
+    if (label) { notify(`Baseline set to ${active} @ ${label}`); setTab("diff"); }
   };
   const clearBaseline = async () => {
     if (!active) return;
@@ -270,6 +275,12 @@ export default function Workspace({ id }: { id: string }) {
           {saveState === "saved" ? "Saved" : saveState === "saving" ? "Saving…" : saveState === "unsaved" ? "Unsaved" : "Save failed"}
         </span>
         <span className="flex-1" />
+        {gitInfo?.github && (
+          <button className="chip hover:underline" onClick={() => setTab("git")} title={gitInfo.lastSyncError ? `Last sync failed: ${gitInfo.lastSyncError}` : gitInfo.autoSync ? "Auto-sync on" : "Auto-sync off"}>
+            <GitBranch size={11} />
+            {gitInfo.lastSyncError ? <span style={{ color: "var(--danger)" }}>sync failed</span> : gitInfo.status.changes.length ? `${gitInfo.status.changes.length} unsynced` : "synced"}
+          </button>
+        )}
         <button className="btn btn-sm" onClick={saveNow} disabled={saveState === "saved" || saveState === "saving"}><Save size={13} /> Save</button>
         <button className="btn btn-primary btn-sm" onClick={compile} disabled={compiling}>{compiling ? "Compiling…" : "Compile"}</button>
         <button className="btn btn-ghost btn-sm" onClick={() => setSettingsOpen(true)} title="Settings"><SettingsIcon size={14} /></button>
@@ -288,7 +299,7 @@ export default function Workspace({ id }: { id: string }) {
           <div className="w-1 shrink-0 cursor-col-resize bg-border hover:bg-accent" onMouseDown={() => { dragging.current = true; document.body.style.cursor = "col-resize"; }} />
           <div className="flex min-w-0 flex-1 flex-col bg-panel">
             <div className="flex shrink-0 items-center border-b border-border px-2">
-              {([["diff", "Diff", GitCompare], ["pdf", "PDF", FileSearch], ["detect", "AI detection", ScanSearch]] as const).map(([k, label, Icon]) => (
+              {([["diff", "Diff", GitCompare], ["pdf", "PDF", FileSearch], ["detect", "AI detection", ScanSearch], ["git", "Git", GitBranch]] as const).map(([k, label, Icon]) => (
                 <button key={k} className={cn("flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px]", tab === k ? "border-accent text-text" : "border-transparent text-muted hover:text-text")} onClick={() => setTab(k)}>
                   <Icon size={14} /> {label}
                   {k === "detect" && detection && <span className="ml-1 h-1.5 w-1.5 rounded-full" style={{ background: detection.result.prediction_short === "AI" ? "var(--danger)" : detection.result.prediction_short === "Mixed" ? "var(--verb)" : "var(--ins-fg)" }} />}
@@ -298,6 +309,7 @@ export default function Workspace({ id }: { id: string }) {
             <div className="min-h-0 flex-1">
               {tab === "pdf" && <PdfPane pdfUrl={pdfUrl} compiling={compiling} result={compileResult} onCompile={compile} onJumpLine={jumpToLine} />}
               {tab === "diff" && <DiffView baseline={baseline} current={content} onJump={reveal} onSnapshotBaseline={snapshotBaseline} onSetBaseline={setBaselineText} onClearBaseline={clearBaseline} />}
+              {tab === "git" && <GitPane projectId={id} projectName={project.name} activeFile={active} changeTick={saveTick} onOpenSettings={() => setSettingsOpen(true)} onUseAsBaseline={(text, label) => setBaselineText(text, label)} onInfo={setGitInfo} />}
               {tab === "detect" && (
                 <DetectionPane settings={settings} models={models} prose={prose.text} wordCount={proseWords} detection={detection} mapped={mappedWindows} running={detecting} error={detectError} highlight={highlightDet} onToggleHighlight={setHighlightDet} onRun={runDetection} onJump={reveal} onOpenSettings={() => setSettingsOpen(true)} />
               )}

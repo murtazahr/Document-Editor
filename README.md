@@ -12,6 +12,10 @@ It is built around three things:
    math, floats and references stripped) is sent to Pangram's text API; the per-window labels
    are shown in a panel and tinted directly in the editor.
 
+Projects can be linked to GitHub: connect your account once and every new project gets its own
+(private) repository, each project folder is a real git repository, and edits are committed and
+pushed automatically. Existing repositories can be imported.
+
 Everything is stored on the local filesystem (no database). Single user, self-hosted.
 
 ## Quick start
@@ -38,6 +42,65 @@ docker compose up --build       # or: docker build -t rewrite-studio . && docker
 The image installs `latexmk` plus the common TeX Live collections. Add packages to the
 `apt-get install` line in the `Dockerfile` if your documents need more.
 
+## GitHub sync
+
+Open **Settings → GitHub** and connect in one of two ways:
+
+- **Connect with GitHub** (OAuth). Register an OAuth app once at
+  GitHub → Settings → Developer settings → OAuth Apps → *New OAuth App* with
+  Homepage `http://localhost:3000` and callback `http://localhost:3000/api/github/callback`
+  (use your real host when deployed), then set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
+  The app asks for the `repo` scope so it can create and push to private repositories.
+- **Personal access token.** Paste a token instead. Classic tokens need the `repo` scope;
+  fine-grained tokens need *Administration: read & write* (to create repositories) and
+  *Contents: read & write*.
+
+Once connected (defaults, all changeable in Settings):
+
+- Creating a project also creates a repository named after it under your account (private),
+  makes the initial commit and pushes it. The project's **Git** tab shows the link.
+- **Auto-sync** commits and pushes about 90 seconds after you stop editing
+  (`GITHUB_AUTOSYNC_DELAY_MS` to change). Commit messages name the changed files; type your own
+  in the Git tab before pressing **Sync** for a deliberate commit.
+- **Sync** = commit local changes → `git pull --rebase` → push. If the remote has conflicting
+  changes, the rebase is aborted, your files are left untouched, and the error is shown; resolve
+  it with git on the command line. The project list and the top bar flag failed syncs.
+- The Git tab lists history; hovering a commit offers *Open on GitHub* and *use this version
+  of the current file as the diff baseline*, which is a convenient way to compare against any
+  earlier draft.
+- **Import** on the home page clones one of your repositories (or any https clone URL) as a new
+  project; the main file is read from `.editor/config.json` if the repo was created by this
+  app, otherwise guessed from `\documentclass`.
+- Projects created before connecting get a **Create GitHub repository** button in the Git
+  tab; you can also link an existing remote URL there.
+
+What is versioned: your sources, `.editor/baselines/` (so baselines follow you across
+machines), `.editor/pangram/` results and `.editor/config.json`. `.build/` output and the
+local `project.json` are ignored via a generated `.gitignore`.
+
+The token is used only server-side, passed to git as an HTTP header per command (never written
+into `.git/config`), and stored in plain text in `DATA_DIR/settings.json`. The app itself has no
+login, so anyone who can reach the server can use the connected account.
+
+## Deployment
+
+This is a server application, not a static site, so **it cannot run on GitHub Pages** (Pages
+only serves static files). It needs a Node.js process with a writable disk and `git` and a TeX
+engine installed, because the server stores projects on disk, shells out to git and latexmk, and
+keeps the Pangram and GitHub tokens server-side. The same applies to serverless hosts such as
+Vercel or Netlify: the API routes would deploy, but the filesystem is ephemeral there and LaTeX
+is not available.
+
+Good fits:
+
+- **Your own machine** (`pnpm build && pnpm start`), which is the simplest for a single user.
+- **Any Docker host**: a small VPS (Hetzner, DigitalOcean, Lightsail), Fly.io, Railway, or Render
+  using the provided `Dockerfile`; mount a persistent volume at `/data`. The image is large
+  (TeX Live) but needs little CPU or memory.
+
+Put it behind HTTPS and some form of access control (a reverse proxy with basic auth, Tailscale,
+or a VPN) if it is reachable from the internet, since the app has no login of its own.
+
 ## Configuration
 
 | Variable | Meaning |
@@ -47,6 +110,8 @@ The image installs `latexmk` plus the common TeX Live collections. Add packages 
 | `DATA_DIR` | Storage directory (default `./data`). Holds projects, baselines, build output and `settings.json`. |
 | `LATEX_ENGINE` | `auto` (default), `latexmk`, `tectonic` or `pdflatex`. `auto` picks the first one found on PATH in that order. |
 | `LATEX_TIMEOUT_MS` | Compile timeout, default 180000. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | OAuth app credentials for "Connect with GitHub". Optional; a personal access token works without them. |
+| `GITHUB_AUTOSYNC_DELAY_MS` | Idle time before an automatic commit + push, default 90000. |
 
 A key entered in **Settings** is written in plain text to `DATA_DIR/settings.json`. Prefer the
 environment variable on shared machines.
@@ -140,7 +205,7 @@ and `/api/pangram/models` on the server.
 pnpm dev        # dev server
 pnpm build      # production build (standalone output)
 pnpm start      # run the production build
-pnpm test       # unit tests for the diff engine and LaTeX stripper (vitest)
+pnpm test       # unit tests: diff engine, LaTeX stripper, git sync against a local bare remote (vitest)
 pnpm lint
 pnpm typecheck
 ```
@@ -154,3 +219,9 @@ pnpm typecheck
   but if your setup produces an unexpected log format, the "Full log" toggle shows the raw output.
 - The Pangram integration was built from Pangram's published API reference and tested against the
   built-in mock; it has not been run against a live key here.
+- The git sync logic is unit-tested against a local bare repository. The GitHub-specific parts
+  (OAuth exchange, repository creation, token-authenticated push) follow GitHub's documented REST
+  and OAuth flows but were not exercised against GitHub from the development environment.
+- Auto-sync timers live in the server process; if the server restarts within the delay window,
+  the pending commit happens on the next edit or manual Sync instead.
+- Requires `git` on the server (the Docker image includes it).

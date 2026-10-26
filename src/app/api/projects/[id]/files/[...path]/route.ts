@@ -1,4 +1,5 @@
 import { handle, json } from "@/lib/api";
+import { noteProjectChanged } from "@/lib/git-sync";
 
 type Ctx = { params: Promise<{ id: string; path: string[] }> };
 import { deleteFile, isTextFile, readBaseline, readBinaryFile, readTextFile, renameFile, safeRelPath, writeTextFile } from "@/lib/storage";
@@ -28,6 +29,7 @@ export const PUT = handle(async (req: Request, { params }: Ctx) => {
   const rel = relOf(p.path);
   const body = (await req.json()) as { content: string };
   await writeTextFile(p.id, rel, body.content ?? "");
+  noteProjectChanged(p.id);
   return json({ ok: true, savedAt: new Date().toISOString() });
 });
 
@@ -37,6 +39,7 @@ export const PATCH = handle(async (req: Request, { params }: Ctx) => {
   const body = (await req.json()) as { to: string };
   const to = safeRelPath(body.to);
   await renameFile(p.id, rel, to);
+  noteProjectChanged(p.id);
   return json({ ok: true, path: to });
 });
 
@@ -44,5 +47,6 @@ export const DELETE = handle(async (_req: Request, { params }: Ctx) => {
   const p = await params;
   const rel = relOf(p.path);
   await deleteFile(p.id, rel);
+  noteProjectChanged(p.id);
   return json({ ok: true });
 });

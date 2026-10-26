@@ -23,6 +23,7 @@ ENV NODE_ENV=production \
 # TeX Live with latexmk. texlive-full is huge; this set covers most papers.
 # Add packages to this list if your documents need them.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+      git ca-certificates \
       latexmk texlive-latex-base texlive-latex-recommended texlive-latex-extra \
       texlive-fonts-recommended texlive-fonts-extra texlive-science texlive-bibtex-extra \
       texlive-pictures texlive-publishers biber ghostscript \

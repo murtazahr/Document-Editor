@@ -6,5 +6,7 @@ services:
     environment:
       PANGRAM_API_KEY: ${PANGRAM_API_KEY:-}
       PANGRAM_MOCK: ${PANGRAM_MOCK:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
     volumes:
       - ./data:/data

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { api, type SettingsInfo } from "@/lib/client-api";
+import GitHubSettings from "./GitHubSettings";
 
 export default function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSaved?: () => void }) {
   const [info, setInfo] = useState<SettingsInfo | null>(null);
@@ -48,6 +49,10 @@ export default function SettingsDialog({ onClose, onSaved }: { onClose: () => vo
         </div>
         {!info ? <p className="text-muted">Loading…</p> : (
           <div className="space-y-6">
+            <section>
+              <h3 className="panel-title mb-2">GitHub</h3>
+              <GitHubSettings onChanged={onSaved} />
+            </section>
             <section>
               <h3 className="panel-title mb-2">Pangram AI detection</h3>
               {info.pangram.mock && <p className="mb-2 rounded bg-accent-soft px-2 py-1 text-xs">PANGRAM_MOCK=1 is set: detection returns locally generated fake results and no credits are used.</p>}

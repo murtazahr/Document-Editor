@@ -1,4 +1,5 @@
 import { handle, json, type Params } from "@/lib/api";
+import { noteProjectChanged } from "@/lib/git-sync";
 import { fileExists, getProject, isTextFile, listFiles, safeRelPath, writeBinaryFile, writeTextFile, StorageError } from "@/lib/storage";
 
 export const GET = handle(async (_req: Request, { params }: Params<"id">) => {
@@ -23,11 +24,13 @@ export const POST = handle(async (req: Request, { params }: Params<"id">) => {
       else await writeBinaryFile(id, rel, buf);
       written.push(rel);
     }
+    noteProjectChanged(id);
     return json({ written, files: await listFiles(id) }, 201);
   }
   const body = (await req.json()) as { path: string; content?: string; overwrite?: boolean };
   const rel = safeRelPath(body.path ?? "");
   if (!body.overwrite && (await fileExists(id, rel))) throw new StorageError("File already exists", 409);
   await writeTextFile(id, rel, body.content ?? "");
+  noteProjectChanged(id);
   return json({ path: rel, files: await listFiles(id) }, 201);
 });

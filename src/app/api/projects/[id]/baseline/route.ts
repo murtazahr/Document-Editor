@@ -1,4 +1,5 @@
 import { handle, json, type Params } from "@/lib/api";
+import { noteProjectChanged } from "@/lib/git-sync";
 import { deleteBaseline, readBaseline, readTextFile, safeRelPath, writeBaseline, StorageError } from "@/lib/storage";
 
 function fileParam(req: Request) {
@@ -20,6 +21,7 @@ export const PUT = handle(async (req: Request, { params }: Params<"id">) => {
   const rel = safeRelPath(body.file);
   const content = body.content ?? (await readTextFile(id, rel));
   await writeBaseline(id, rel, content);
+  noteProjectChanged(id);
   return json({ ok: true, file: rel, baseline: content });
 });
 
@@ -27,5 +29,6 @@ export const DELETE = handle(async (req: Request, { params }: Params<"id">) => {
   const { id } = await params;
   const rel = fileParam(req);
   await deleteBaseline(id, rel);
+  noteProjectChanged(id);
   return json({ ok: true });
 });

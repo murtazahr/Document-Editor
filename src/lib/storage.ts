@@ -18,12 +18,25 @@ const PROJECTS_DIR = path.join(DATA_DIR, "projects");
 const EDITOR_DIR = ".editor";
 export const BUILD_DIR = ".build";
 
+export type GitHubLink = {
+  owner: string;
+  repo: string;
+  htmlUrl: string;
+  branch: string;
+};
+
 export type ProjectMeta = {
   id: string;
   name: string;
   mainFile: string;
   createdAt: string;
   updatedAt: string;
+  /** set once the project folder is a git repo with a GitHub remote */
+  github?: GitHubLink;
+  /** commit + push automatically a little while after edits (default: settings.githubAutoSync) */
+  autoSync?: boolean;
+  lastSyncAt?: string;
+  lastSyncError?: string;
 };
 
 export type FileEntry = {
@@ -37,6 +50,17 @@ export type Settings = {
   pangramApiKey?: string;
   pangramModel?: string;
   latexEngine?: "auto" | "latexmk" | "tectonic" | "pdflatex";
+  /** GitHub OAuth token or personal access token */
+  githubToken?: string;
+  githubLogin?: string;
+  githubUserId?: number;
+  githubAvatarUrl?: string;
+  /** create a GitHub repo automatically for every new project (default true once connected) */
+  githubAutoCreate?: boolean;
+  /** create repos as private (default true) */
+  githubPrivate?: boolean;
+  /** default for new projects: auto commit+push after edits (default true) */
+  githubAutoSync?: boolean;
 };
 
 const TEXT_EXT = new Set([".tex", ".bib", ".cls", ".sty", ".bst", ".txt", ".md", ".bbl", ".aux", ".cfg", ".def", ".clo", ".csv", ".json"]);
@@ -117,19 +141,48 @@ export async function createProject(name: string, files: Record<string, string>,
   const now = new Date().toISOString();
   const meta: ProjectMeta = { id, name: name.trim() || "Untitled project", mainFile, createdAt: now, updatedAt: now };
   await writeJson(path.join(dir, "project.json"), meta);
+  await writeTrackedConfig(id, meta);
   for (const [rel, content] of Object.entries(files)) {
     await writeTextFile(id, rel, content, { touch: false });
   }
   return meta;
 }
 
-export async function updateProject(id: string, patch: Partial<Pick<ProjectMeta, "name" | "mainFile">>): Promise<ProjectMeta> {
+/** Register an already-populated directory (e.g. a fresh clone) as a project. */
+export async function adoptProjectDir(id: string, name: string, mainFile: string, extra: Partial<ProjectMeta> = {}): Promise<ProjectMeta> {
+  const now = new Date().toISOString();
+  const meta: ProjectMeta = { id, name, mainFile, createdAt: now, updatedAt: now, ...extra };
+  await writeJson(path.join(projectDir(id), "project.json"), meta);
+  await writeTrackedConfig(id, meta);
+  return meta;
+}
+
+export function newProjectDir(): { id: string; dir: string } {
+  const id = newId();
+  return { id, dir: projectDir(id) };
+}
+
+export async function updateProject(id: string, patch: Partial<Omit<ProjectMeta, "id" | "createdAt">>): Promise<ProjectMeta> {
   const meta = await getProject(id);
   if (patch.name !== undefined) meta.name = patch.name.trim() || meta.name;
   if (patch.mainFile !== undefined) meta.mainFile = safeRelPath(patch.mainFile);
-  meta.updatedAt = new Date().toISOString();
+  if ("github" in patch) { if (patch.github) meta.github = patch.github; else delete meta.github; }
+  if (patch.autoSync !== undefined) meta.autoSync = patch.autoSync;
+  if ("lastSyncAt" in patch) meta.lastSyncAt = patch.lastSyncAt;
+  if ("lastSyncError" in patch) { if (patch.lastSyncError) meta.lastSyncError = patch.lastSyncError; else delete meta.lastSyncError; }
+  meta.updatedAt = patch.updatedAt ?? new Date().toISOString();
   await writeJson(path.join(projectDir(id), "project.json"), meta);
+  await writeTrackedConfig(id, meta);
   return meta;
+}
+
+/** Small tracked file so a clone on another machine knows the main file (project.json itself is local-only). */
+export async function writeTrackedConfig(id: string, meta: ProjectMeta) {
+  await writeJson(path.join(projectDir(id), EDITOR_DIR, "config.json"), { mainFile: meta.mainFile, name: meta.name });
+}
+
+export async function readTrackedConfig(dir: string): Promise<{ mainFile?: string; name?: string } | null> {
+  return readJson(path.join(dir, EDITOR_DIR, "config.json"));
 }
 
 export async function deleteProject(id: string) {
