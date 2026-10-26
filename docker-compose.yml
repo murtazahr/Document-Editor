@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      PANGRAM_API_KEY: ${PANGRAM_API_KEY:-}
+      PANGRAM_MOCK: ${PANGRAM_MOCK:-}
+    volumes:
+      - ./data:/data
