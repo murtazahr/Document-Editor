@@ -103,6 +103,20 @@ fi
 
 log "Building image and starting (first build downloads TeX Live; this takes a while)"
 $DOCKER compose "${COMPOSE_FILES[@]}" up -d --build --remove-orphans
+if [ -n "${APP_USER:-}" ] && [ -n "${APP_PASSWORD:-}" ]; then
+  # Caddy only reads its config at startup and compose does not notice content changes in a
+  # bind-mounted file, so restart it to pick up the regenerated credentials.
+  $DOCKER compose "${COMPOSE_FILES[@]}" restart caddy
+  sleep 2
+  CODE=$(curl -s -o /dev/null -w '%{http_code}' -u "$APP_USER:$APP_PASSWORD" http://127.0.0.1/ || echo 000)
+  if [ "$CODE" = "200" ]; then
+    echo "Basic auth check: OK (HTTP 200 with the supplied credentials)"
+  else
+    echo "Basic auth check FAILED (HTTP $CODE). Caddy logs:" >&2
+    $DOCKER compose "${COMPOSE_FILES[@]}" logs --tail=30 caddy >&2
+    exit 1
+  fi
+fi
 
 IP=$(hostname -I | awk '{print $1}')
 log "Done."
