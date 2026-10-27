@@ -19,6 +19,9 @@
 #                               PW=$(printf '%s' 'my$pass' | base64)
 #                               ssh ubuntu@<vm-ip> "APP_USER=me APP_PASSWORD_B64=$PW bash -s" < deploy/vm-setup.sh
 #   PANGRAM_API_KEY, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET   written to .env (can also be set later in the app)
+#   AUTO_UPDATE    1 (default) installs a systemd timer that checks BRANCH every 5 minutes and
+#                  redeploys when it has new commits (pull-based continuous deployment); 0 skips it.
+#   UPDATE_INTERVAL  timer interval, systemd time span (default 5min)
 set -euo pipefail
 
 if [ -n "${APP_PASSWORD_B64:-}" ]; then
@@ -118,6 +121,38 @@ if [ -n "${APP_USER:-}" ] && [ -n "${APP_PASSWORD:-}" ]; then
   fi
 fi
 
+if [ "${AUTO_UPDATE:-1}" = "1" ]; then
+  log "Installing auto-update timer (every ${UPDATE_INTERVAL:-5min}, branch $BRANCH)"
+  sudo tee /etc/systemd/system/rewrite-studio-update.service >/dev/null <<UNIT
+[Unit]
+Description=Rewrite Studio: redeploy when branch $BRANCH has new commits
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=$USER
+Environment=APP_DIR=$APP_DIR
+Environment=BRANCH=$BRANCH
+ExecStart=/usr/bin/bash $APP_DIR/deploy/auto-update.sh
+UNIT
+  sudo tee /etc/systemd/system/rewrite-studio-update.timer >/dev/null <<UNIT
+[Unit]
+Description=Rewrite Studio: check for new commits
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=${UPDATE_INTERVAL:-5min}
+RandomizedDelaySec=30
+Unit=rewrite-studio-update.service
+
+[Install]
+WantedBy=timers.target
+UNIT
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now rewrite-studio-update.timer >/dev/null
+fi
+
 IP=$(hostname -I | awk '{print $1}')
 log "Done."
 if [ -n "${APP_USER:-}" ] && [ -n "${APP_PASSWORD:-}" ]; then
@@ -126,4 +161,9 @@ else
   echo "Open: http://$IP:3000/"
 fi
 echo "Logs:    sudo docker compose ${COMPOSE_FILES[*]} logs -f"
-echo "Update:  re-run this script"
+if [ "${AUTO_UPDATE:-1}" = "1" ]; then
+  echo "Updates: automatic; every push to '$BRANCH' is deployed within ~${UPDATE_INTERVAL:-5min}."
+  echo "         Status: systemctl list-timers rewrite-studio-update.timer; logs: journalctl -u rewrite-studio-update -n 50"
+else
+  echo "Update:  re-run this script"
+fi

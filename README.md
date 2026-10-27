@@ -105,6 +105,15 @@ build, start, optional basic-auth proxy on port 80):
 ssh ubuntu@<vm-ip> 'APP_USER=me APP_PASSWORD=choose-one BRANCH=main bash -s' < deploy/vm-setup.sh
 ```
 
+The script also installs a systemd timer (`rewrite-studio-update.timer`) that checks the deployed
+branch every 5 minutes and redeploys automatically when it has new commits, so after the first
+run a `git push` is all it takes. `AUTO_UPDATE=0` skips the timer; `UPDATE_INTERVAL=2min` changes
+the cadence. On the VM: `systemctl list-timers rewrite-studio-update.timer` and
+`journalctl -u rewrite-studio-update -n 50` show its state and logs. GitHub cannot push to a VM
+that is only reachable inside a private network, which is why deployment is pull-based; the
+GitHub Actions workflow in `.github/workflows/ci.yml` runs lint, tests and the build on every
+push so you see failures before the VM picks a commit up.
+
 If the password contains `$` or quotes, pass it base64-encoded so neither shell touches it:
 
 ```bash
