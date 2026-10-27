@@ -105,6 +105,13 @@ build, start, optional basic-auth proxy on port 80):
 ssh ubuntu@<vm-ip> 'APP_USER=me APP_PASSWORD=choose-one BRANCH=main bash -s' < deploy/vm-setup.sh
 ```
 
+If the password contains `$` or quotes, pass it base64-encoded so neither shell touches it:
+
+```bash
+PW=$(printf '%s' 'my$pass$word' | base64)
+ssh ubuntu@<vm-ip> "APP_USER=me APP_PASSWORD_B64=$PW BRANCH=main bash -s" < deploy/vm-setup.sh
+```
+
 Put it behind HTTPS and some form of access control (a reverse proxy with basic auth, Tailscale,
 or a VPN) if it is reachable from the internet, since the app has no login of its own.
 

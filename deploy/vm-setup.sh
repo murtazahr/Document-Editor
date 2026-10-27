@@ -14,8 +14,17 @@
 #   APP_DIR        checkout location             (default /opt/rewrite-studio)
 #   APP_USER / APP_PASSWORD   if both set, the app is served on port 80 behind Caddy with basic auth;
 #                             otherwise it listens directly on port 3000 with no authentication.
+#   APP_PASSWORD_B64          base64 of the password; use this instead of APP_PASSWORD when the
+#                             password contains $ ' " or other shell-special characters, e.g.
+#                               PW=$(printf '%s' 'my$pass' | base64)
+#                               ssh ubuntu@<vm-ip> "APP_USER=me APP_PASSWORD_B64=$PW bash -s" < deploy/vm-setup.sh
 #   PANGRAM_API_KEY, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET   written to .env (can also be set later in the app)
 set -euo pipefail
+
+if [ -n "${APP_PASSWORD_B64:-}" ]; then
+  APP_PASSWORD=$(printf '%s' "$APP_PASSWORD_B64" | base64 -d) || { echo "APP_PASSWORD_B64 is not valid base64" >&2; exit 1; }
+  export APP_PASSWORD
+fi
 
 REPO="${REPO:-https://github.com/murtazahr/Document-Editor}"
 BRANCH="${BRANCH:-main}"
