@@ -74,6 +74,9 @@ mkdir -p data
 
 log "Writing .env"
 touch .env
+# Earlier versions stored the basic-auth hash here; its "$" signs make docker compose emit
+# "variable is not set" warnings. The hash now lives in deploy/Caddyfile.generated.
+sed -i '/^APP_PASSWORD_HASH=/d;/^APP_USER=/d' .env
 setenv() { # setenv KEY VALUE  (only when VALUE non-empty; replaces existing line)
   [ -n "$2" ] || return 0
   grep -q "^$1=" .env && sed -i "s|^$1=.*|$1=$2|" .env || echo "$1=$2" >> .env
@@ -164,7 +167,7 @@ else
   echo "Open: http://$IP:3000/   (no authentication)"
 fi
 echo "Logs:    sudo docker compose ${COMPOSE_FILES[*]} logs -f"
-if [ "${AUTO_UPDATE:-1}" = "1" ]; then
+if [ "${AUTO_UPDATE:-1}" = "1" ] || systemctl is-enabled -q rewrite-studio-update.timer 2>/dev/null; then
   echo "Updates: automatic; every push to '$BRANCH' is deployed within ~${UPDATE_INTERVAL:-5min}."
   echo "         Status: systemctl list-timers rewrite-studio-update.timer; logs: journalctl -u rewrite-studio-update -n 50"
 else
