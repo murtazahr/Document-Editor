@@ -83,7 +83,9 @@ setenv GITHUB_CLIENT_ID "${GITHUB_CLIENT_ID:-}"
 setenv GITHUB_CLIENT_SECRET "${GITHUB_CLIENT_SECRET:-}"
 
 COMPOSE_FILES=(-f docker-compose.yml)
+AUTH_ON=0
 if [ -n "${APP_USER:-}" ] && [ -n "${APP_PASSWORD:-}" ]; then
+  AUTH_ON=1
   log "Enabling basic auth via Caddy on port 80 (user: $APP_USER)"
   HASH=$($DOCKER run --rm caddy:2 caddy hash-password --plaintext "$APP_PASSWORD")
   # Write the hash straight into the Caddyfile: passing it through .env would let docker compose
@@ -98,6 +100,7 @@ open("deploy/Caddyfile.generated", "w").write(t)
 PYEOF
   COMPOSE_FILES+=(-f deploy/compose.auth.yml)
 elif [ -f deploy/Caddyfile.generated ]; then
+  AUTH_ON=1
   log "Keeping existing basic-auth configuration (deploy/Caddyfile.generated)"
   COMPOSE_FILES+=(-f deploy/compose.auth.yml)
 else
@@ -155,10 +158,10 @@ fi
 
 IP=$(hostname -I | awk '{print $1}')
 log "Done."
-if [ -n "${APP_USER:-}" ] && [ -n "${APP_PASSWORD:-}" ]; then
-  echo "Open: http://$IP/   (basic auth user: $APP_USER)"
+if [ "$AUTH_ON" = "1" ]; then
+  echo "Open: http://$IP/   (basic auth${APP_USER:+ user: $APP_USER}; port 3000 is not exposed)"
 else
-  echo "Open: http://$IP:3000/"
+  echo "Open: http://$IP:3000/   (no authentication)"
 fi
 echo "Logs:    sudo docker compose ${COMPOSE_FILES[*]} logs -f"
 if [ "${AUTO_UPDATE:-1}" = "1" ]; then
