@@ -210,6 +210,28 @@ Implemented against the documented async task API
 - `GET  …/task/{task_id}` polled server-side every second until `stage` is `STAGE_SUCCESS` or
   `STAGE_FAILED`.
 
+**Bulk by default.** Pangram's bulk endpoint is about 20% cheaper than the realtime task API, so
+runs go through `POST /bulk` (one item per file), the job id is stored under
+`.editor/pangram/jobs/`, and the browser polls `GET /bulk/{bulk_id}` through the server until the
+job is `succeeded`, `failed` or `partial`; results are then paged from `GET /bulk/{bulk_id}/results`
+and stored per file. Pending jobs survive a page reload. "All N files" submits every `.tex` file of
+the project as one job. Bulk jobs have no completion-time guarantee; switch to **Realtime** in
+Settings (or in the panel) when you want an answer within seconds or a shareable dashboard link.
+Bulk requests are capped by Pangram at 1,000 billable units (100,000 words for Pangram 4).
+
+**Only changed paragraphs.** Pangram bills per started 100-word block per item, so re-running a
+whole file after a small edit wastes credits. When a previous result exists for the file, the
+panel defaults to *Only changed paragraphs since the last run*: the previous prose and the current
+prose are aligned with the same paragraph diff used by the Diff tab, windows from the previous
+result that lie entirely inside unchanged paragraphs are kept (re-based to the new text), and only
+modified or added paragraphs are sent, concatenated as a single item so partial blocks are not
+billed several times. The panel shows the estimate before you click (for example
+"1/13 paragraphs · 31 of 346 words · 1 of 4 units"); if nothing changed, nothing is sent. The merged
+result is marked **incremental**, and its document-level percentages are computed locally from the
+window word counts rather than returned by Pangram. Two caveats: a paragraph scored on its own can
+receive a slightly different label than it would inside the whole document, and Pangram's own
+document-level verdict is only available from a full run, so untick the box occasionally for one.
+
 The result (`headline`, `prediction_short`, `fraction_ai` / `fraction_ai_assisted` /
 `fraction_human`, and `windows[]` with `label`, `ai_assistance_score`, `confidence`,
 `is_humanized`, `humanizer_score`, `start_index`, `end_index`) is cached per file. Each window is
@@ -228,7 +250,7 @@ and `/api/pangram/models` on the server.
 pnpm dev        # dev server
 pnpm build      # production build (standalone output)
 pnpm start      # run the production build
-pnpm test       # unit tests: diff engine, LaTeX stripper, git sync against a local bare remote (vitest)
+pnpm test       # unit tests: diff engine, LaTeX stripper, incremental detection, git sync against a local bare remote
 pnpm lint
 pnpm typecheck
 ```

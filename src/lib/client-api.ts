@@ -2,9 +2,9 @@
 
 import type { ProjectMeta, FileEntry } from "./storage";
 import type { CompileResult } from "./latex-compile";
-import type { StoredDetection } from "./pangram/types";
+import type { StoredDetection, DetectionJob } from "./pangram/types";
 
-export type { ProjectMeta, FileEntry, CompileResult, StoredDetection };
+export type { ProjectMeta, FileEntry, CompileResult, StoredDetection, DetectionJob };
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) {
@@ -26,7 +26,7 @@ export async function api<T>(url: string, init: RequestInit = {}): Promise<T> {
 export type ProjectDetail = ProjectMeta & { files: FileEntry[] };
 export type FileContent = { path: string; content: string; baseline: string | null };
 export type SettingsInfo = {
-  pangram: { hasKey: boolean; source: "env" | "settings" | "none"; mock: boolean; model: string; keyHint: string | null };
+  pangram: { hasKey: boolean; source: "env" | "settings" | "none"; mock: boolean; model: string; mode: "bulk" | "realtime"; keyHint: string | null };
   latex: { engines: Record<"latexmk" | "tectonic" | "pdflatex", boolean>; selected: string | null; preference: string; envOverride: boolean };
 };
 

@@ -10,6 +10,7 @@ export default function SettingsDialog({ onClose, onSaved }: { onClose: () => vo
   const [key, setKey] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState("default");
+  const [mode, setMode] = useState<"bulk" | "realtime">("bulk");
   const [engine, setEngine] = useState("auto");
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -18,6 +19,7 @@ export default function SettingsDialog({ onClose, onSaved }: { onClose: () => vo
     api<SettingsInfo>("/api/settings").then((s) => {
       setInfo(s);
       setModel(s.pangram.model);
+      setMode(s.pangram.mode);
       setEngine(s.latex.preference);
       if (s.pangram.hasKey || s.pangram.mock) {
         api<{ models: string[] }>("/api/pangram/models").then((m) => setModels(m.models)).catch(() => setModels([]));
@@ -28,7 +30,7 @@ export default function SettingsDialog({ onClose, onSaved }: { onClose: () => vo
   const save = async () => {
     setBusy(true); setMsg(null);
     try {
-      await api("/api/settings", { method: "PUT", body: JSON.stringify({ ...(key ? { pangramApiKey: key } : {}), pangramModel: model, latexEngine: engine }) });
+      await api("/api/settings", { method: "PUT", body: JSON.stringify({ ...(key ? { pangramApiKey: key } : {}), pangramModel: model, pangramMode: mode, latexEngine: engine }) });
       setKey("");
       setMsg("Saved.");
       await load();
@@ -71,6 +73,12 @@ export default function SettingsDialog({ onClose, onSaved }: { onClose: () => vo
                 </select>
               </label>
               <p className="mt-1 text-[11px] text-muted">Models come from Pangram&apos;s <code>GET /models</code> for your key; &quot;default&quot; follows Pangram&apos;s current default model.</p>
+              <label className="mt-3 block text-xs text-muted">API mode
+                <select className="input mt-1" value={mode} onChange={(e) => setMode(e.target.value as "bulk" | "realtime")}>
+                  <option value="bulk">Bulk (about 20% cheaper; asynchronous, results when the job completes)</option>
+                  <option value="realtime">Realtime (task API; result within seconds; dashboard links available)</option>
+                </select>
+              </label>
             </section>
             <section>
               <h3 className="panel-title mb-2">LaTeX engine</h3>

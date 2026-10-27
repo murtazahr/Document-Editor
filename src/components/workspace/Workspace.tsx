@@ -10,7 +10,7 @@ import DiffView from "@/components/diff/DiffView";
 import DetectionPane, { type MappedWindow } from "@/components/pangram/DetectionPane";
 import SettingsDialog from "./SettingsDialog";
 import GitPane, { type GitInfo } from "./GitPane";
-import { api, encPath, type ProjectDetail, type FileContent, type CompileResult, type StoredDetection, type SettingsInfo } from "@/lib/client-api";
+import { api, encPath, type ProjectDetail, type FileContent, type CompileResult, type StoredDetection, type SettingsInfo, type DetectionJob } from "@/lib/client-api";
 import { latexToProse, proseRangeToSource, findLoose, countWords } from "@/lib/latex-prose";
 import { cn } from "@/components/ui/cn";
 
@@ -36,6 +36,7 @@ export default function Workspace({ id }: { id: string }) {
   const [detection, setDetection] = useState<StoredDetection | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [detectError, setDetectError] = useState<string | null>(null);
+  const [pendingJobs, setPendingJobs] = useState<DetectionJob[]>([]);
   const [highlightDet, setHighlightDet] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [saveTick, setSaveTick] = useState(0);
@@ -85,6 +86,7 @@ export default function Workspace({ id }: { id: string }) {
         await loadSettings();
         const first = p.files.find((f) => f.path === p.mainFile) ?? p.files.find((f) => f.path.endsWith(".tex")) ?? p.files.find((f) => !f.binary);
         if (first) await openFile(first.path);
+        try { setPendingJobs((await api<{ jobs: DetectionJob[] }>(`/api/projects/${id}/detect/jobs`)).jobs); } catch { /* ignore */ }
         // show an existing PDF if there is one
         const head = await fetch(`/api/projects/${id}/pdf`, { method: "HEAD" }).catch(() => null);
         if (head?.ok) setPdfUrl(`/api/projects/${id}/pdf?t=${Date.now()}`);
@@ -195,16 +197,61 @@ export default function Workspace({ id }: { id: string }) {
   const prose = useMemo(() => latexToProse(content), [content]);
   const proseWords = useMemo(() => countWords(prose.text), [prose.text]);
 
-  const runDetection = async (opts: { model: string; publicDashboardLink: boolean }) => {
-    if (!active) return;
+  const runDetection = async (opts: { model: string; publicDashboardLink: boolean; mode: "bulk" | "realtime"; allFiles?: boolean; incremental: boolean }) => {
+    if (!active && !opts.allFiles) return;
     setDetecting(true);
     setDetectError(null);
     try {
-      const r = await api<{ detection: StoredDetection }>(`/api/projects/${id}/detect`, { method: "POST", body: JSON.stringify({ file: active, text: prose.text, ...opts }) });
-      setDetection(r.detection);
-      setHighlightDet(true);
+      const body = opts.allFiles
+        ? { allFiles: true, model: opts.model, incremental: opts.incremental }
+        : { file: active, text: prose.text, model: opts.model, mode: opts.mode, publicDashboardLink: opts.publicDashboardLink, incremental: opts.incremental };
+      const r = await api<{ job?: DetectionJob | null; detection?: StoredDetection; message?: string; unchanged?: string[] }>(`/api/projects/${id}/detect`, { method: "POST", body: JSON.stringify(body) });
+      if (r.job) {
+        setPendingJobs((js) => [...js, r.job!]);
+        const sent = r.job.items.reduce((n, i) => n + i.wordCount, 0);
+        notify(opts.allFiles ? `Bulk job submitted: ${r.job.items.length} file(s), ${sent.toLocaleString()} words${r.unchanged?.length ? `, ${r.unchanged.length} unchanged skipped` : ""}` : `Bulk job submitted (${sent.toLocaleString()} words); results arrive when Pangram finishes`);
+      } else if (r.detection) {
+        setDetection(r.detection);
+        setHighlightDet(true);
+        if (r.message) notify(r.message);
+      } else if (r.message) notify(r.message);
     } catch (e) { setDetectError((e as Error).message); } finally { setDetecting(false); }
   };
+
+  // Poll pending bulk jobs until Pangram reports them terminal and the server has stored the results.
+  useEffect(() => {
+    if (pendingJobs.length === 0) return;
+    let cancelled = false;
+    const tick = async () => {
+      for (const job of pendingJobs) {
+        try {
+          const r = await api<{ job: DetectionJob }>(`/api/projects/${id}/detect/jobs/${encodeURIComponent(job.bulkId)}`);
+          if (cancelled) return;
+          if (r.job.done) {
+            setPendingJobs((js) => js.filter((j) => j.bulkId !== job.bulkId));
+            const ok = r.job.items.filter((i) => i.outcome === "ok").length;
+            const bad = r.job.items.filter((i) => i.outcome === "error");
+            notify(`Detection finished: ${ok} file(s) analysed${bad.length ? `, ${bad.length} failed` : ""}`);
+            if (bad.length) setDetectError(bad.map((b) => `${b.file}: ${b.error}`).join("; "));
+            const cur = activeRef.current;
+            if (cur && r.job.items.some((i) => i.file === cur)) {
+              try { setDetection((await api<{ detection: StoredDetection | null }>(`/api/projects/${id}/detect?file=${encodeURIComponent(cur)}`)).detection); setHighlightDet(true); } catch { /* ignore */ }
+            }
+          } else {
+            setPendingJobs((js) => js.map((j) => (j.bulkId === job.bulkId ? r.job : j)));
+          }
+        } catch (e) {
+          if (cancelled) return;
+          setDetectError((e as Error).message);
+          setPendingJobs((js) => js.filter((j) => j.bulkId !== job.bulkId));
+        }
+      }
+    };
+    tick();
+    const t = setInterval(tick, 4000);
+    return () => { cancelled = true; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingJobs.map((j) => j.bulkId).join(","), id]);
 
   /** Locate each detector window in the current prose, then map to source offsets. */
   const mappedWindows: MappedWindow[] = useMemo(() => {
@@ -311,7 +358,7 @@ export default function Workspace({ id }: { id: string }) {
               {tab === "diff" && <DiffView baseline={baseline} current={content} onJump={reveal} onSnapshotBaseline={snapshotBaseline} onSetBaseline={setBaselineText} onClearBaseline={clearBaseline} />}
               {tab === "git" && <GitPane projectId={id} projectName={project.name} activeFile={active} changeTick={saveTick} onOpenSettings={() => setSettingsOpen(true)} onUseAsBaseline={(text, label) => setBaselineText(text, label)} onInfo={setGitInfo} />}
               {tab === "detect" && (
-                <DetectionPane settings={settings} models={models} prose={prose.text} wordCount={proseWords} detection={detection} mapped={mappedWindows} running={detecting} error={detectError} highlight={highlightDet} onToggleHighlight={setHighlightDet} onRun={runDetection} onJump={reveal} onOpenSettings={() => setSettingsOpen(true)} />
+                <DetectionPane settings={settings} models={models} prose={prose.text} wordCount={proseWords} detection={detection} mapped={mappedWindows} running={detecting} error={detectError} highlight={highlightDet} onToggleHighlight={setHighlightDet} onRun={runDetection} onJump={reveal} onOpenSettings={() => setSettingsOpen(true)} pendingJobs={pendingJobs} texFileCount={project.files.filter((f) => f.path.endsWith(".tex")).length} onModeChange={async (m) => { await api("/api/settings", { method: "PUT", body: JSON.stringify({ pangramMode: m }) }); loadSettings(); }} />
               )}
             </div>
           </div>

@@ -1,4 +1,4 @@
-import type { PangramResult, PangramWindow } from "./types";
+import type { BulkResultsPage, BulkStatusResponse, BulkSubmitResponse, PangramResult, PangramWindow } from "./types";
 
 export const PANGRAM_BASE = "https://text.external-api.pangram.com";
 
@@ -101,4 +101,39 @@ export function mockDetect(text: string): PangramResult {
     num_human_segments: windows.filter((w) => w.label === "Human Written").length,
     windows,
   };
+}
+
+// ---------- bulk ----------
+
+/** Pangram 4 bills one unit per started block of 100 words per item; a bulk request may hold at most 1,000 units. */
+export const BULK_MAX_UNITS = 1000;
+export function billableUnits(wordCount: number) {
+  return Math.max(1, Math.ceil(wordCount / 100));
+}
+
+export async function submitBulk(key: string, items: { id: string; text: string }[], model = "default"): Promise<BulkSubmitResponse> {
+  return (await pangramFetch(key, "/bulk", { method: "POST", body: JSON.stringify({ items, model }) })) as BulkSubmitResponse;
+}
+
+export async function getBulkStatus(key: string, bulkId: string): Promise<BulkStatusResponse> {
+  return (await pangramFetch(key, `/bulk/${encodeURIComponent(bulkId)}`)) as BulkStatusResponse;
+}
+
+export async function getBulkResultsPage(key: string, bulkId: string, offset = 0, limit = 100): Promise<BulkResultsPage> {
+  return (await pangramFetch(key, `/bulk/${encodeURIComponent(bulkId)}/results?offset=${offset}&limit=${limit}`)) as BulkResultsPage;
+}
+
+/** Page through every result of a terminal job. */
+export async function getAllBulkResults(key: string, bulkId: string): Promise<{ items: BulkResultsPage["items"]; failed: BulkResultsPage["failed_items"] }> {
+  const items: BulkResultsPage["items"] = [];
+  const failed: BulkResultsPage["failed_items"] = [];
+  let offset = 0;
+  for (;;) {
+    const page = await getBulkResultsPage(key, bulkId, offset, 100);
+    items.push(...page.items);
+    failed.push(...page.failed_items);
+    offset += 100;
+    if (offset >= page.total_items || (page.items.length === 0 && page.failed_items.length === 0)) break;
+  }
+  return { items, failed };
 }

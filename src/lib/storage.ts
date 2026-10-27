@@ -49,6 +49,8 @@ export type FileEntry = {
 export type Settings = {
   pangramApiKey?: string;
   pangramModel?: string;
+  /** bulk (20% cheaper, asynchronous) or realtime task API; default bulk */
+  pangramMode?: "bulk" | "realtime";
   latexEngine?: "auto" | "latexmk" | "tectonic" | "pdflatex";
   /** GitHub OAuth token or personal access token */
   githubToken?: string;
@@ -337,6 +339,28 @@ export async function readPangramResult<T>(id: string, rel: string): Promise<T |
 
 export async function writePangramResult(id: string, rel: string, v: unknown) {
   await writeJson(pangramPath(id, rel), v);
+}
+
+function jobsDir(id: string) {
+  return path.join(projectDir(id), EDITOR_DIR, "pangram", "jobs");
+}
+
+export async function writeDetectionJob(id: string, bulkId: string, job: unknown) {
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(bulkId)) throw new StorageError("Invalid job id", 400);
+  await writeJson(path.join(jobsDir(id), bulkId + ".json"), job);
+}
+
+export async function readDetectionJob<T>(id: string, bulkId: string): Promise<T | null> {
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(bulkId)) throw new StorageError("Invalid job id", 400);
+  return readJson<T>(path.join(jobsDir(id), bulkId + ".json"));
+}
+
+export async function listDetectionJobs<T>(id: string): Promise<T[]> {
+  let names: string[] = [];
+  try { names = await fs.readdir(jobsDir(id)); } catch { return []; }
+  const out: T[] = [];
+  for (const n of names) if (n.endsWith(".json")) { const j = await readJson<T>(path.join(jobsDir(id), n)); if (j) out.push(j); }
+  return out;
 }
 
 // ---------- build dir ----------

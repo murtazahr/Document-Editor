@@ -42,4 +42,65 @@ export type StoredDetection = {
   sentText: string;
   wordCount: number;
   result: PangramResult;
+  /** which endpoint produced it */
+  mode?: "realtime" | "bulk";
+  bulkId?: string;
+  /** present when only changed paragraphs were sent and the rest reused */
+  incremental?: IncrementalInfoShape;
+};
+
+export type IncrementalInfoShape = {
+  reusedParagraphs: number;
+  changedParagraphs: number;
+  totalParagraphs: number;
+  wordsSent: number;
+  wordsTotal: number;
+  unitsSent: number;
+  unitsFull: number;
+};
+
+// ---------- bulk API (https://docs.pangram.com/api-reference/bulk-api) ----------
+
+export type BulkStatus = "queued" | "running" | "succeeded" | "failed" | "partial" | string;
+
+export type BulkSubmitResponse = {
+  bulk_id: string;
+  status: BulkStatus;
+  total_items: number;
+  accepted_items: { index: number; id?: string; task_id: string }[];
+  failed_items: { index: number; id?: string; task_id: null; stage: string; error: string }[];
+};
+
+export type BulkStatusResponse = {
+  bulk_id: string;
+  status: BulkStatus;
+  total_items: number;
+  accepted: number;
+  succeeded: number;
+  failed: number;
+  created_at: string;
+  completed_at: string | null;
+};
+
+export type BulkResultItem = { index: number; id?: string; task_id: string | null; stage: string; error?: string | null; result: PangramResult | null };
+export type BulkFailedItem = { index: number; id?: string; task_id: string | null; stage: string; error?: string | null };
+export type BulkResultsPage = { bulk_id: string; offset: number; limit: number; total_items: number; items: BulkResultItem[]; failed_items: BulkFailedItem[] };
+
+/** A bulk job we submitted for a project; stored under .editor/pangram/jobs/<bulkId>.json */
+export type DetectionJob = {
+  bulkId: string;
+  createdAt: string;
+  model: string;
+  mock: boolean;
+  status: BulkStatus;
+  /** true once results have been fetched and stored per file */
+  done: boolean;
+  completedAt?: string;
+  items: {
+    id: string; file: string; textHash: string; sentText: string; wordCount: number; outcome?: "ok" | "error"; error?: string;
+    /** incremental run: the full prose and the windows reused from the previous result */
+    incremental?: { fullText: string; reusedWindows: PangramWindow[]; changedParagraphs: number; reusedParagraphs: number; totalParagraphs: number; wordsTotal: number; wordsReused: number };
+  }[];
+  counters?: { total: number; succeeded: number; failed: number };
+  error?: string;
 };
