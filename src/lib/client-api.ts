@@ -27,6 +27,7 @@ export type ProjectDetail = ProjectMeta & { files: FileEntry[] };
 export type FileContent = { path: string; content: string; baseline: string | null };
 export type SettingsInfo = {
   pangram: { hasKey: boolean; source: "env" | "settings" | "none"; mock: boolean; model: string; mode: "bulk" | "realtime"; keyHint: string | null };
+  anthropic: { hasKey: boolean; source: "env" | "settings" | "none"; mock: boolean; model: string; models: readonly string[]; keyHint: string | null };
   latex: { engines: Record<"latexmk" | "tectonic" | "pdflatex", boolean>; selected: string | null; preference: string; envOverride: boolean };
 };
 

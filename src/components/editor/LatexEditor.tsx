@@ -15,6 +15,8 @@ export type LatexEditorHandle = {
   /** Scroll to and briefly flash a source range. */
   reveal: (from: number, to?: number) => void;
   getSelection: () => { from: number; to: number; text: string } | null;
+  /** Replace a range only if it still holds `expected`; returns false otherwise. */
+  replaceRange: (from: number, to: number, expected: string, text: string) => boolean;
   focus: () => void;
 };
 
@@ -122,6 +124,14 @@ const LatexEditor = forwardRef<LatexEditorHandle, Props>(function LatexEditor({ 
       const r = v.state.selection.main;
       if (r.empty) return null;
       return { from: r.from, to: r.to, text: v.state.sliceDoc(r.from, r.to) };
+    },
+    replaceRange(from, to, expected, text) {
+      const v = view.current;
+      if (!v) return false;
+      if (v.state.sliceDoc(from, to) !== expected) return false;
+      v.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length }, effects: [EditorView.scrollIntoView(from, { y: "center" }), setFlash.of({ from, to: from + text.length })] });
+      setTimeout(() => view.current?.dispatch({ effects: setFlash.of(null) }), 1200);
+      return true;
     },
     focus() { view.current?.focus(); },
   }));

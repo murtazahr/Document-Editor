@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, PanelLeft, Settings as SettingsIcon, Save, FileSearch, GitCompare, ScanSearch, GitBranch } from "lucide-react";
+import { ArrowLeft, PanelLeft, Settings as SettingsIcon, Save, FileSearch, GitCompare, ScanSearch, GitBranch, SpellCheck } from "lucide-react";
 import LatexEditor, { type LatexEditorHandle, type HighlightRange } from "@/components/editor/LatexEditor";
 import FileSidebar from "@/components/files/FileSidebar";
 import PdfPane from "@/components/pdf/PdfPane";
@@ -10,11 +10,14 @@ import DiffView from "@/components/diff/DiffView";
 import DetectionPane, { type MappedWindow } from "@/components/pangram/DetectionPane";
 import SettingsDialog from "./SettingsDialog";
 import GitPane, { type GitInfo } from "./GitPane";
+import GrammarPane, { type GrammarState } from "@/components/grammar/GrammarPane";
+import { applySuggestion, shiftAfter } from "@/lib/grammar/resolve";
+import type { GrammarResult, GrammarLevel } from "@/lib/grammar/claude";
 import { api, encPath, type ProjectDetail, type FileContent, type CompileResult, type StoredDetection, type SettingsInfo, type DetectionJob } from "@/lib/client-api";
 import { latexToProse, proseRangeToSource, findLoose, countWords } from "@/lib/latex-prose";
 import { cn } from "@/components/ui/cn";
 
-type Tab = "pdf" | "diff" | "detect" | "git";
+type Tab = "pdf" | "diff" | "detect" | "git" | "grammar";
 type SaveState = "saved" | "unsaved" | "saving" | "error";
 
 export default function Workspace({ id }: { id: string }) {
@@ -40,6 +43,11 @@ export default function Workspace({ id }: { id: string }) {
   const [highlightDet, setHighlightDet] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [saveTick, setSaveTick] = useState(0);
+  const emptyGrammar: GrammarState = { suggestions: [], done: {}, usage: null, model: null, mock: false, unresolved: 0, scope: null, checkedAt: null };
+  const [grammar, setGrammar] = useState<GrammarState>(emptyGrammar);
+  const [grammarRunning, setGrammarRunning] = useState(false);
+  const [grammarError, setGrammarError] = useState<string | null>(null);
+  const [hasSelection, setHasSelection] = useState(false);
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
 
   const editor = useRef<LatexEditorHandle>(null);
@@ -76,6 +84,8 @@ export default function Workspace({ id }: { id: string }) {
     setBaseline(f.baseline);
     setSaveState("saved");
     setDetectError(null);
+    setGrammar({ suggestions: [], done: {}, usage: null, model: null, mock: false, unresolved: 0, scope: null, checkedAt: null });
+    setGrammarError(null);
     try { setDetection((await api<{ detection: StoredDetection | null }>(`/api/projects/${id}/detect?file=${encodeURIComponent(path)}`)).detection); } catch { setDetection(null); }
   }, [id]);
 
@@ -283,6 +293,43 @@ export default function Workspace({ id }: { id: string }) {
     return out;
   }, [highlightDet, detection, mappedWindows]);
 
+  // ---------- grammar ----------
+  const runGrammar = async (scope: "selection" | "file", level: GrammarLevel) => {
+    if (!active) return;
+    const sel = scope === "selection" ? editor.current?.getSelection() : null;
+    if (scope === "selection" && !sel) { setGrammarError("Select some text in the editor first."); return; }
+    const text = sel ? sel.text : contentRef.current;
+    const base = sel ? sel.from : 0;
+    setGrammarRunning(true);
+    setGrammarError(null);
+    try {
+      const r = await api<GrammarResult>(`/api/projects/${id}/grammar`, { method: "POST", body: JSON.stringify({ text, level }) });
+      setGrammar({ suggestions: r.suggestions.map((sg) => ({ ...sg, from: sg.from + base, to: sg.to + base })), done: {}, usage: r.usage, model: r.model, mock: r.mock, unresolved: r.unresolved, scope, checkedAt: new Date().toISOString() });
+      if (r.suggestions.length === 0) notify("No issues found");
+    } catch (e) { setGrammarError((e as Error).message); } finally { setGrammarRunning(false); }
+  };
+  const acceptSuggestion = (sid: string) => {
+    setGrammar((g) => {
+      const sg = g.suggestions.find((x) => x.id === sid);
+      if (!sg || g.done[sid]) return g;
+      const res = applySuggestion(contentRef.current, sg);
+      if (!res || !editor.current?.replaceRange(res.from, res.to, sg.original, sg.replacement)) return { ...g, done: { ...g.done, [sid]: "stale" } };
+      return { ...g, suggestions: shiftAfter(g.suggestions, res.to, res.delta), done: { ...g.done, [sid]: "applied" } };
+    });
+  };
+  const acceptAll = () => {
+    // apply from the end so earlier offsets stay valid
+    const open = grammar.suggestions.filter((x) => !grammar.done[x.id]).sort((a, b) => b.from - a.from);
+    const done = { ...grammar.done };
+    for (const sg of open) {
+      const res = applySuggestion(contentRef.current, sg);
+      done[sg.id] = res && editor.current?.replaceRange(res.from, res.to, sg.original, sg.replacement) ? "applied" : "stale";
+    }
+    setGrammar((g) => ({ ...g, done }));
+  };
+  const dismissSuggestion = (sid: string) => setGrammar((g) => ({ ...g, done: { ...g.done, [sid]: "dismissed" } }));
+  const revealSuggestion = (sid: string) => { const sg = grammar.suggestions.find((x) => x.id === sid); if (sg) editor.current?.reveal(sg.from, sg.to); };
+
   // ---------- layout: drag to resize ----------
   const dragging = useRef(false);
   const mainRef = useRef<HTMLDivElement>(null);
@@ -297,6 +344,12 @@ export default function Workspace({ id }: { id: string }) {
     window.addEventListener("mouseup", up);
     return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
   }, []);
+
+  useEffect(() => {
+    if (tab !== "grammar") return;
+    const t = setInterval(() => setHasSelection(!!editor.current?.getSelection()), 400);
+    return () => clearInterval(t);
+  }, [tab]);
 
   const jumpToLine = (line: number) => {
     const lines = content.split("\n");
@@ -346,7 +399,7 @@ export default function Workspace({ id }: { id: string }) {
           <div className="w-1 shrink-0 cursor-col-resize bg-border hover:bg-accent" onMouseDown={() => { dragging.current = true; document.body.style.cursor = "col-resize"; }} />
           <div className="flex min-w-0 flex-1 flex-col bg-panel">
             <div className="flex shrink-0 items-center border-b border-border px-2">
-              {([["diff", "Diff", GitCompare], ["pdf", "PDF", FileSearch], ["detect", "AI detection", ScanSearch], ["git", "Git", GitBranch]] as const).map(([k, label, Icon]) => (
+              {([["diff", "Diff", GitCompare], ["pdf", "PDF", FileSearch], ["detect", "AI detection", ScanSearch], ["grammar", "Grammar", SpellCheck], ["git", "Git", GitBranch]] as const).map(([k, label, Icon]) => (
                 <button key={k} className={cn("flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px]", tab === k ? "border-accent text-text" : "border-transparent text-muted hover:text-text")} onClick={() => setTab(k)}>
                   <Icon size={14} /> {label}
                   {k === "detect" && detection && <span className="ml-1 h-1.5 w-1.5 rounded-full" style={{ background: detection.result.prediction_short === "AI" ? "var(--danger)" : detection.result.prediction_short === "Mixed" ? "var(--verb)" : "var(--ins-fg)" }} />}
@@ -356,6 +409,7 @@ export default function Workspace({ id }: { id: string }) {
             <div className="min-h-0 flex-1">
               {tab === "pdf" && <PdfPane pdfUrl={pdfUrl} compiling={compiling} result={compileResult} onCompile={compile} onJumpLine={jumpToLine} />}
               {tab === "diff" && <DiffView baseline={baseline} current={content} onJump={reveal} onSnapshotBaseline={snapshotBaseline} onSetBaseline={setBaselineText} onClearBaseline={clearBaseline} />}
+              {tab === "grammar" && <GrammarPane settings={settings} state={grammar} running={grammarRunning} error={grammarError} hasSelection={hasSelection} onCheck={runGrammar} onAccept={acceptSuggestion} onAcceptAll={acceptAll} onDismiss={dismissSuggestion} onReveal={revealSuggestion} onOpenSettings={() => setSettingsOpen(true)} />}
               {tab === "git" && <GitPane projectId={id} projectName={project.name} activeFile={active} changeTick={saveTick} onOpenSettings={() => setSettingsOpen(true)} onUseAsBaseline={(text, label) => setBaselineText(text, label)} onInfo={setGitInfo} />}
               {tab === "detect" && (
                 <DetectionPane settings={settings} models={models} prose={prose.text} wordCount={proseWords} detection={detection} mapped={mappedWindows} running={detecting} error={detectError} highlight={highlightDet} onToggleHighlight={setHighlightDet} onRun={runDetection} onJump={reveal} onOpenSettings={() => setSettingsOpen(true)} pendingJobs={pendingJobs} texFileCount={project.files.filter((f) => f.path.endsWith(".tex")).length} onModeChange={async (m) => { await api("/api/settings", { method: "PUT", body: JSON.stringify({ pangramMode: m }) }); loadSettings(); }} />

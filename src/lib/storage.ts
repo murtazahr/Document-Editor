@@ -51,6 +51,9 @@ export type Settings = {
   pangramModel?: string;
   /** bulk (20% cheaper, asynchronous) or realtime task API; default bulk */
   pangramMode?: "bulk" | "realtime";
+  /** Anthropic API key for the grammar checker (env ANTHROPIC_API_KEY wins) */
+  anthropicApiKey?: string;
+  anthropicModel?: string;
   latexEngine?: "auto" | "latexmk" | "tectonic" | "pdflatex";
   /** GitHub OAuth token or personal access token */
   githubToken?: string;
@@ -396,6 +399,13 @@ export async function resolvePangramKey(): Promise<{ key: string | null; source:
   if (process.env.PANGRAM_API_KEY) return { key: process.env.PANGRAM_API_KEY, source: "env" };
   const s = await readSettings();
   if (s.pangramApiKey) return { key: s.pangramApiKey, source: "settings" };
+  return { key: null, source: "none" };
+}
+
+export async function resolveAnthropicKey(): Promise<{ key: string | null; source: "env" | "settings" | "none" }> {
+  if (process.env.ANTHROPIC_API_KEY) return { key: process.env.ANTHROPIC_API_KEY, source: "env" };
+  const s = await readSettings();
+  if (s.anthropicApiKey) return { key: s.anthropicApiKey, source: "settings" };
   return { key: null, source: "none" };
 }
 

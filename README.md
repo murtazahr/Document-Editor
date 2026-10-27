@@ -8,7 +8,10 @@ It is built around three things:
    baseline, rewrite, and see paragraph-aligned, word-level changes — inline or side by side,
    on the raw source or on the extracted prose — with unchanged "verbatim runs" flagged so you
    can see what you have not rewritten yet.
-3. **Pangram AI detection inside the editor.** The prose of the current file (LaTeX markup,
+3. **A grammar checker backed by Claude.** Select a passage (or the whole file) and get minimal
+   edits back as a reviewable list, each shown as a word-level redline; accept them one by one or
+   all at once directly in the editor. LaTeX commands, math and citations are left untouched.
+4. **Pangram AI detection inside the editor.** The prose of the current file (LaTeX markup,
    math, floats and references stripped) is sent to Pangram's text API; the per-window labels
    are shown in a panel and tinted directly in the editor.
 
@@ -130,6 +133,8 @@ or a VPN) if it is reachable from the internet, since the app has no login of it
 | --- | --- |
 | `PANGRAM_API_KEY` | Pangram API key. Overrides a key saved in the Settings dialog. |
 | `PANGRAM_MOCK=1` | Return locally generated fake detection results (no credits). Results are labelled **mock** everywhere. |
+| `ANTHROPIC_API_KEY` | Anthropic API key for the grammar checker. Overrides a key saved in Settings. |
+| `ANTHROPIC_MOCK=1` | Fake grammar suggestions without calling Anthropic. |
 | `DATA_DIR` | Storage directory (default `./data`). Holds projects, baselines, build output and `settings.json`. |
 | `LATEX_ENGINE` | `auto` (default), `latexmk`, `tectonic` or `pdflatex`. `auto` picks the first one found on PATH in that order. |
 | `LATEX_TIMEOUT_MS` | Compile timeout, default 180000. |
@@ -198,6 +203,26 @@ highlighted in the editor.
 It is a heuristic, not a TeX parser: custom macros that hide prose in unusual argument positions
 will be handled as "drop the command name, keep the braced text".
 
+### Grammar checker (Claude)
+
+Settings → *Grammar checker* takes an Anthropic API key (or set `ANTHROPIC_API_KEY`; the
+environment variable wins) and a model; the default is `claude-sonnet-5-5`, with
+`claude-opus-5-5` and `claude-haiku-5-5` selectable. The **Grammar** tab sends the LaTeX source of
+the current selection or the whole file (long files are split at paragraph boundaries into
+chunks of about 8,000 characters, checked three at a time) to the Messages API with a
+structured-output schema: a list of `{original, replacement, reason, category}` edits where
+`original` must be a verbatim substring of the input. The server resolves each edit to exact
+offsets and drops any it cannot place (shown as "unplaced"). Two levels: *Grammar* fixes only
+spelling, grammar, punctuation and misused words; *+ Clarity* also simplifies wordy phrasing. The
+model runs at `low` effort, which is enough for copy-editing and keeps cost down; the tab shows
+input and output tokens per check.
+
+Accepting a suggestion replaces exactly the recorded span in the editor, after verifying the text
+there still matches; if you edited in between, the suggestion is relocated when the original is
+unique in the file and otherwise marked stale. Accepted edits flow into the normal autosave, the
+baseline diff and git sync like any other edit. Set `ANTHROPIC_MOCK=1` to get fake suggestions
+without an API key.
+
 ### Pangram integration
 
 Implemented against the documented async task API
@@ -250,7 +275,7 @@ and `/api/pangram/models` on the server.
 pnpm dev        # dev server
 pnpm build      # production build (standalone output)
 pnpm start      # run the production build
-pnpm test       # unit tests: diff engine, LaTeX stripper, incremental detection, git sync against a local bare remote
+pnpm test       # unit tests: diff engine, LaTeX stripper, incremental detection, grammar edit resolution, git sync
 pnpm lint
 pnpm typecheck
 ```
@@ -264,6 +289,9 @@ pnpm typecheck
   but if your setup produces an unexpected log format, the "Full log" toggle shows the raw output.
 - The Pangram integration was built from Pangram's published API reference and tested against the
   built-in mock; it has not been run against a live key here.
+- The grammar checker's request/response handling follows the Anthropic SDK's documented
+  `messages.parse` + Zod structured-output path and was tested against the built-in mock; it has not
+  been run with a live Anthropic key here.
 - The git sync logic is unit-tested against a local bare repository. The GitHub-specific parts
   (OAuth exchange, repository creation, token-authenticated push) follow GitHub's documented REST
   and OAuth flows but were not exercised against GitHub from the development environment.
