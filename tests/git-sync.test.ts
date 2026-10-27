@@ -35,6 +35,14 @@ describe("git sync against a local bare remote", () => {
     expect(tracked).toEqual([".editor/baselines/main.tex", ".editor/config.json", ".gitignore", "main.tex"]);
   });
 
+  it("hides .git from the file listing and the file API", async () => {
+    const files = await storage.listFiles(id);
+    expect(files.some((f) => f.path.startsWith(".git/"))).toBe(false);
+    expect(files.map((f) => f.path)).toContain(".gitignore");
+    expect(() => storage.safeRelPath(".git/config")).toThrow(/Reserved/);
+    expect(() => storage.safeRelPath("sub/.git/HEAD")).toThrow(/Reserved/);
+  });
+
   it("commits local edits with a default message and pushes", async () => {
     await storage.writeTextFile(id, "main.tex", "\\documentclass{article}\\begin{document}Hello\\end{document}\n");
     const r = await sync.syncProject(id);

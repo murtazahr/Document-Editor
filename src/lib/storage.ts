@@ -89,8 +89,9 @@ export function safeRelPath(rel: string): string {
   if (!norm || norm === "." || norm.startsWith("../") || norm.includes("/../") || norm === "..") {
     throw new StorageError("Invalid path", 400);
   }
-  const first = norm.split("/")[0];
-  if (first === EDITOR_DIR || first === BUILD_DIR || norm === "project.json") {
+  const parts = norm.split("/");
+  const first = parts[0];
+  if (first === EDITOR_DIR || first === BUILD_DIR || norm === "project.json" || parts.includes(".git")) {
     throw new StorageError("Reserved path", 400);
   }
   return norm;
@@ -207,6 +208,7 @@ export async function listFiles(id: string): Promise<FileEntry[]> {
     for (const e of entries) {
       const r = rel ? `${rel}/${e.name}` : e.name;
       if (!rel && (e.name === EDITOR_DIR || e.name === BUILD_DIR || e.name === "project.json")) continue;
+      if (e.name === ".git") continue; // git internals are never project files
       if (e.isDirectory()) await walk(r);
       else {
         const st = await fs.stat(path.join(dir, r));
