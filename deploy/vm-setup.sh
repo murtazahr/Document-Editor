@@ -51,6 +51,13 @@ else
   git -C "$APP_DIR" reset -q --hard "origin/$BRANCH"
 fi
 cd "$APP_DIR"
+
+# The script is usually streamed from a laptop checkout that may be older than the one just
+# pulled. Re-run the freshly checked-out copy so script and compose files always match.
+if [ -z "${RS_REEXEC:-}" ]; then
+  log "Continuing with the script from the updated checkout"
+  RS_REEXEC=1 exec bash "$APP_DIR/deploy/vm-setup.sh"
+fi
 mkdir -p data
 
 log "Writing .env"
@@ -69,6 +76,8 @@ if [ -n "${APP_USER:-}" ] && [ -n "${APP_PASSWORD:-}" ]; then
   HASH=$($DOCKER run --rm caddy:2 caddy hash-password --plaintext "$APP_PASSWORD")
   # Write the hash straight into the Caddyfile: passing it through .env would let docker compose
   # interpolate the "$" signs in the bcrypt hash and silently break authentication.
+  # a directory can be left here if an older run mounted the path before it existed
+  [ -d deploy/Caddyfile.generated ] && sudo rm -rf deploy/Caddyfile.generated
   python3 - "$APP_USER" "$HASH" <<'PYEOF'
 import sys
 user, h = sys.argv[1], sys.argv[2]

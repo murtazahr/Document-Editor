@@ -12,7 +12,12 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./deploy/Caddyfile.generated:/etc/caddy/Caddyfile:ro
+      - type: bind
+        source: ./deploy/Caddyfile.generated
+        target: /etc/caddy/Caddyfile
+        read_only: true
+        bind:
+          create_host_path: false   # fail loudly instead of creating an empty directory
       - caddy_data:/data
     depends_on:
       - app
