@@ -42,8 +42,12 @@ set, then rewrite a paragraph and watch the **Diff** tab.
 docker compose up --build       # or: docker build -t rewrite-studio . && docker run -p 3000:3000 -v $PWD/data:/data rewrite-studio
 ```
 
-The image installs `latexmk` plus the common TeX Live collections. Add packages to the
-`apt-get install` line in the `Dockerfile` if your documents need more.
+The image installs `latexmk` plus the common TeX Live collections, including
+`texlive-plain-generic` (generic macros such as `binhex.tex`, needed by `newtxmath`). If a
+compile log reports a missing `.sty` or `.tex` file, find the Debian package that ships it with
+`apt-file search <name>` (or `tlmgr info --file <name>` on a TeX Live install) and add it to the
+`apt-get install` line in the `Dockerfile`; XeLaTeX and LuaLaTeX need `texlive-xetex` /
+`texlive-luatex`, and non-English hyphenation needs the matching `texlive-lang-*` package.
 
 ## GitHub sync
 

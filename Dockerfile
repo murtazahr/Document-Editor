@@ -21,12 +21,13 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     DATA_DIR=/data
 # TeX Live with latexmk. texlive-full is huge; this set covers most papers.
-# Add packages to this list if your documents need them.
+# texlive-plain-generic provides generic macros such as kastrup's binhex.tex, which newtxmath needs.
+# Add packages to this list if your documents need them (e.g. texlive-xetex, texlive-luatex, texlive-lang-*).
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git ca-certificates \
       latexmk texlive-latex-base texlive-latex-recommended texlive-latex-extra \
       texlive-fonts-recommended texlive-fonts-extra texlive-science texlive-bibtex-extra \
-      texlive-pictures texlive-publishers biber ghostscript \
+      texlive-pictures texlive-publishers texlive-plain-generic biber ghostscript \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/public ./public
