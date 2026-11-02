@@ -67,3 +67,14 @@ describe("countWords", () => {
     expect(countWords("It's a well-known fact: 3 words? no.")).toBe(7);
   });
 });
+
+describe("normalizeDiagnosticPath", () => {
+  it("makes compiler paths project-relative based on the main file's folder", async () => {
+    const { normalizeDiagnosticPath } = await import("@/lib/latex-compile");
+    expect(normalizeDiagnosticPath("./main.tex", "paper/main.tex")).toBe("paper/main.tex");
+    expect(normalizeDiagnosticPath("./sections/01-intro.tex", "paper/main.tex")).toBe("paper/sections/01-intro.tex");
+    expect(normalizeDiagnosticPath("main.tex", "main.tex")).toBe("main.tex");
+    expect(normalizeDiagnosticPath("/usr/share/texlive/x.sty", "paper/main.tex")).toBeUndefined();
+    expect(normalizeDiagnosticPath("../outside.tex", "main.tex")).toBeUndefined();
+  });
+});

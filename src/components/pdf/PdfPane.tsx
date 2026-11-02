@@ -10,7 +10,7 @@ type Props = {
   compiling: boolean;
   result: CompileResult | null;
   onCompile: () => void;
-  onJumpLine: (line: number) => void;
+  onJumpLine: (line: number, file?: string) => void;
 };
 
 export default function PdfPane({ pdfUrl, compiling, result, onCompile, onJumpLine }: Props) {
@@ -31,8 +31,9 @@ export default function PdfPane({ pdfUrl, compiling, result, onCompile, onJumpLi
         <div className="max-h-48 overflow-auto border-b border-border bg-panel-2 text-xs">
           {!result.ok && result.engine && result.errors.length === 0 && <div className="flex items-center gap-2 px-3 py-2" style={{ color: "var(--danger)" }}><AlertTriangle size={13} /> {result.message ?? "Compilation failed"}</div>}
           {diags.map((d, i) => (
-            <button key={i} className={cn("flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-panel", d.severity === "error" ? "" : "text-muted")} onClick={() => d.line && onJumpLine(d.line)}>
+            <button key={i} className={cn("flex w-full items-start gap-2 px-3 py-1.5 text-left hover:bg-panel", d.severity === "error" ? "" : "text-muted")} onClick={() => d.line && onJumpLine(d.line, d.file)}>
               <span className="w-14 shrink-0 font-mono" style={{ color: d.severity === "error" ? "var(--danger)" : "var(--verb)" }}>{d.severity === "error" ? "error" : "warn"}{d.line ? `:${d.line}` : ""}</span>
+              {d.file && <span className="shrink-0 font-mono text-muted" title={d.file}>{d.file.split("/").pop()}</span>}
               <span className="break-words">{d.message}</span>
             </button>
           ))}

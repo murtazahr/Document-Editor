@@ -68,10 +68,12 @@ export type Settings = {
   githubAutoSync?: boolean;
 };
 
-const TEXT_EXT = new Set([".tex", ".bib", ".cls", ".sty", ".bst", ".txt", ".md", ".bbl", ".aux", ".cfg", ".def", ".clo", ".csv", ".json"]);
+const TEXT_EXT = new Set([".tex", ".bib", ".cls", ".sty", ".bst", ".txt", ".md", ".bbl", ".aux", ".cfg", ".def", ".clo", ".csv", ".json", ".py", ".r", ".m", ".jl", ".sh", ".yml", ".yaml", ".toml", ".ini", ".xml", ".html", ".css", ".js", ".ts", ".tsv", ".dat", ".log", ".ltx", ".dtx", ".ins", ".lco", ".tikz", ".pgf", ".gnuplot", ".mk"]);
+const TEXT_NAMES = new Set([".gitignore", ".gitattributes", "makefile", "latexmkrc", ".latexmkrc", "license", "readme"]);
 
 export function isTextFile(p: string) {
-  return TEXT_EXT.has(path.extname(p).toLowerCase());
+  const base = path.posix.basename(p.replace(/\\/g, "/")).toLowerCase();
+  return TEXT_EXT.has(path.extname(base)) || TEXT_NAMES.has(base);
 }
 
 export class StorageError extends Error {

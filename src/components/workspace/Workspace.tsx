@@ -165,6 +165,8 @@ export default function Workspace({ id }: { id: string }) {
   };
   const uploadFiles = async (list: FileList) => {
     const fd = new FormData();
+    const dir = active && active.includes("/") ? active.slice(0, active.lastIndexOf("/")) : "";
+    if (dir) fd.append("dir", dir);
     for (const f of Array.from(list)) fd.append("files", f);
     try { await api(`/api/projects/${id}/files`, { method: "POST", body: fd }); await refreshFiles(); notify(`Uploaded ${list.length} file(s)`); } catch (e) { notify((e as Error).message); }
   };
@@ -351,11 +353,20 @@ export default function Workspace({ id }: { id: string }) {
     return () => clearInterval(t);
   }, [tab]);
 
-  const jumpToLine = (line: number) => {
-    const lines = content.split("\n");
+  const revealLine = (text: string, line: number) => {
+    const lines = text.split("\n");
     let off = 0;
     for (let i = 0; i < Math.min(line - 1, lines.length); i++) off += lines[i].length + 1;
     editor.current?.reveal(off, off + (lines[line - 1]?.length ?? 0));
+  };
+  const jumpToLine = async (line: number, file?: string) => {
+    if (file && file !== activeRef.current && project?.files.some((f) => f.path === file && !f.binary)) {
+      await switchFile(file);
+      // wait for the editor to receive the new document
+      setTimeout(() => revealLine(contentRef.current, line), 50);
+      return;
+    }
+    revealLine(contentRef.current, line);
   };
   const reveal = (from: number, to?: number) => editor.current?.reveal(from, to);
 

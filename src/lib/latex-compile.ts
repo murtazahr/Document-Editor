@@ -103,13 +103,30 @@ export function parseLog(log: string): { errors: Diagnostic[]; warnings: Diagnos
   return { errors, warnings };
 }
 
+/**
+ * Make a path from a compiler log project-relative. TeX reports files relative to the
+ * directory it runs in (the main file's directory), e.g. "./sections/intro.tex".
+ */
+export function normalizeDiagnosticPath(file: string | undefined, mainFile: string): string | undefined {
+  if (!file) return undefined;
+  let f = file.replace(/\\/g, "/").replace(/^\.\//, "");
+  if (path.posix.isAbsolute(f)) return undefined; // system files (packages, classes outside the project)
+  const dir = path.posix.dirname(mainFile);
+  f = path.posix.normalize(dir === "." ? f : `${dir}/${f}`);
+  if (f.startsWith("../")) return undefined;
+  return f;
+}
+
 export async function compileProject(id: string, mainFile: string): Promise<CompileResult> {
   const t0 = Date.now();
   const engine = await pickEngine();
-  const cwd = projectRoot(id);
+  // Run inside the main file's directory so \input, \include, \bibliography and local .cls/.sty
+  // files resolve exactly as they would on the command line.
+  const cwd = path.join(projectRoot(id), path.posix.dirname(mainFile));
+  const mainBase = path.posix.basename(mainFile);
   const out = buildDir(id);
   await fs.mkdir(out, { recursive: true });
-  const pdfName = path.basename(mainFile).replace(/\.tex$/i, "") + ".pdf";
+  const pdfName = mainBase.replace(/\.tex$/i, "") + ".pdf";
   const pdfPath = path.join(out, pdfName);
   await fs.rm(pdfPath, { force: true });
 
@@ -123,14 +140,14 @@ export async function compileProject(id: string, mainFile: string): Promise<Comp
   let log = "";
   let res: Awaited<ReturnType<typeof run>>;
   if (engine === "latexmk") {
-    res = await run("latexmk", ["-pdf", "-interaction=nonstopmode", "-halt-on-error", "-file-line-error", "-synctex=0", `-outdir=${out}`, mainFile], cwd, timeout);
+    res = await run("latexmk", ["-pdf", "-interaction=nonstopmode", "-halt-on-error", "-file-line-error", "-synctex=0", `-outdir=${out}`, mainBase], cwd, timeout);
     log = res.stdout + "\n" + res.stderr;
-    try { log = await fs.readFile(path.join(out, path.basename(mainFile).replace(/\.tex$/i, "") + ".log"), "utf8"); } catch { /* keep stdout */ }
+    try { log = await fs.readFile(path.join(out, mainBase.replace(/\.tex$/i, "") + ".log"), "utf8"); } catch { /* keep stdout */ }
   } else if (engine === "tectonic") {
-    res = await run("tectonic", ["-X", "compile", "--outdir", out, "--keep-logs", "--synctex=false", mainFile], cwd, timeout);
+    res = await run("tectonic", ["-X", "compile", "--outdir", out, "--keep-logs", "--synctex=false", mainBase], cwd, timeout);
     log = res.stdout + "\n" + res.stderr;
   } else {
-    const args = ["-interaction=nonstopmode", "-halt-on-error", "-file-line-error", `-output-directory=${out}`, mainFile];
+    const args = ["-interaction=nonstopmode", "-halt-on-error", "-file-line-error", `-output-directory=${out}`, mainBase];
     res = await run("pdflatex", args, cwd, timeout);
     if (res.code === 0) res = await run("pdflatex", args, cwd, timeout);
     log = res.stdout + "\n" + res.stderr;
@@ -139,6 +156,7 @@ export async function compileProject(id: string, mainFile: string): Promise<Comp
   await fs.writeFile(path.join(out, "last.log"), log).catch(() => {});
   if (pdfExists) await fs.copyFile(pdfPath, path.join(out, "output.pdf"));
   const { errors, warnings } = parseLog(log);
+  for (const d of [...errors, ...warnings]) d.file = normalizeDiagnosticPath(d.file, mainFile);
   const ok = res.code === 0 && pdfExists;
   return {
     ok, engine, durationMs: Date.now() - t0, log: log.slice(-200_000), errors, warnings, pdf: pdfExists,
